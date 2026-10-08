@@ -1,0 +1,23 @@
+/* Reference only: @font-face rules are inlined in chrome/app/content/WellnessPathwaysWidgets.js (getMetropolisFontFaceCss) using chrome.runtime.getURL — do not load this file as a <link> on arbitrary pages as it is causing issues on site like https://ebook.smp.org/storefront/searchcatalog.html?search=9781641210577&x=0&y=0  */
+
+@font-face {
+    font-family: 'Metropolis Regular';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Metropolis Regular'), url('Metropolis-Regular.woff') format('woff');
+}
+
+@font-face {
+    font-family: 'Metropolis Medium';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Metropolis Medium'), url('Metropolis-Medium.woff') format('woff');
+}
+
+
+@font-face {
+    font-family: 'Metropolis Semi Bold';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Metropolis Semi Bold'), url('Metropolis-SemiBold.woff') format('woff');
+}

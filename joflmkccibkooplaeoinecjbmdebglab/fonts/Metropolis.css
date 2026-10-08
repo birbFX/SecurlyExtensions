@@ -1,0 +1,21 @@
+@font-face {
+    font-family: 'Metropolis Regular';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Metropolis Regular'), url('Metropolis-Regular.woff') format('woff');
+}
+
+@font-face {
+    font-family: 'Metropolis Medium';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Metropolis Medium'), url('Metropolis-Medium.woff') format('woff');
+}
+
+
+@font-face {
+    font-family: 'Metropolis Semi Bold';
+    font-style: normal;
+    font-weight: normal;
+    src: local('Metropolis Semi Bold'), url('Metropolis-SemiBold.woff') format('woff');
+}

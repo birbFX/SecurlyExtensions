@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "clusterUrl": {
+      "type": "string",
+      "description": "URL of the cluster endpoint. If provided, this will be used instead of fetching the cluster URL dynamically."
+    },
+    "dnsBypassCheckV2": {
+      "type": "integer",
+      "description": "Enable DNS bypass detection. Set to 1 to enable, 0 to disable. If not set and clusterUrl is configured, defaults to enabled."
+    }
+  }
+}
