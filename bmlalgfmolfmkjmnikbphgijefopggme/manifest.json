@@ -1,0 +1,230 @@
+{
+  "name": "Securly for Edge browser",
+  "short_name": "Securly",
+  "version": "3.0.73",
+  "description": "Secure your Edge browser with Securly",
+  "permissions": [
+    "webRequest",
+    "identity",
+    "cookies",
+    "tabs",
+    "browsingData",
+    "identity.email",
+    "geolocation",
+    "idle",
+    "downloads",
+    "storage",
+    "scripting",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback",
+    "system.display",
+    "alarms",
+    "webNavigation",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "*://*/",
+    "file://*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://youtube.com/*",
+        "*://youtube-nocookie.com/*",
+        "*://*.youtube-nocookie.com/*",
+        "*://youtubeeducation.com/*",
+        "*://*.youtubeeducation.com/*"
+      ],
+      "js": [
+        "content.min.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.google.com/maps/*",
+        "*://google.com/maps/*"
+      ],
+      "js": [
+        "content2.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://bing.com/search*",
+        "*://www.bing.com/search*",
+        "*://search.yahoo.com/search*",
+        "*://www.search.yahoo.com/search*",
+        "*://youtube.com/*",
+        "*://www.youtube.com/*",
+        "*://google.com/search*",
+        "*://www.google.com/search*",
+        "*://google.co.uk/search*",
+        "*://www.google.co.uk/search*",
+        "*://google.ie/search*",
+        "*://www.google.ie/search*",
+        "*://google.ca/search*",
+        "*://www.google.ca/search*",
+        "*://google.com.au/search*",
+        "*://www.google.com.au/search*",
+        "*://google.co.in/search*",
+        "*://www.google.co.in/search*"
+      ],
+      "js": [
+        "content3.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content4.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content5.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://meet.google.com/*"
+      ],
+      "js": [
+        "content6.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://chat.google.com/*"
+      ],
+      "js": [
+        "content10.min.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://*/*"
+      ],
+      "include_globs": [
+        "https://www.google.*/*"
+      ],
+      "js": [
+        "content9.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "*://*.securly.com/crextn/geoloc.html"
+      ],
+      "js": [
+        "content7.min.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "https://*/*"
+      ],
+      "include_globs": [
+        "https://www.google.*/*"
+      ],
+      "js": [
+        "content8.min.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content11.min.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://docs.google.com/*",
+        "https://gemini.google.com/*",
+        "https://chatgpt.com/*",
+        "https://student.magicschool.ai/*",
+        "https://student.schoolai.com/*",
+        "https://app.schoolai.com/assistants/*",
+        "https://app.briskteaching.com/*",
+        "https://notebooklm.google.com/*",
+        "https://copilot.microsoft.com/*",
+        "https://*.copilot.com/*",
+        "https://platform.colleague.ai/*"
+      ],
+      "js": [
+        "content12.min.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "background": {
+    "service_worker": "securly.min.js"
+  },
+  "oauth2": {
+    "client_id": "979354546084.apps.googleusercontent.com",
+    "scopes": [
+      "email"
+    ]
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "fonts/*",
+        "*.svg",
+        "models/mobilenet_v2/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    },
+    {
+      "resources": [
+        "blocked.html"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "storage": {
+    "managed_schema": "schema.json"
+  },
+  "manifest_version": 3,
+  "update_url": "https://crextnaut.securly.com/subscribers/defaultfrommanifest@securly.com/update-manifest.xml"
+}
