@@ -1,0 +1,139 @@
+async function getChromeTabs(tabOptions) {
+  try {
+    return await chrome.tabs.query(tabOptions);
+  } catch (error) {
+    logger.info("Cannot get chrome tabs: " + error);
+    return [];
+  }
+}
+
+async function createWindow(urls) {
+  const data = {focused: true, state: "normal", type: "normal"};
+  if (urls) {
+    data["url"] = urls;
+    if (config.session.maxOpenTabs > 0 && urls.length > config.session.maxOpenTabs) {
+      config.session.additionalOpenTabs = urls.length - config.session.maxOpenTabs;
+    }
+  }
+  return await chrome.windows.create(data);
+}
+
+async function updateWindowFullscreen(windowId) {
+  try {
+    await chrome.windows.update(windowId, {focused: true, state: "fullscreen"});
+  } catch (error) {
+    logger.info("Error while update to fullscreen: " + error);
+  }
+}
+
+async function closeTab(tabId) {
+  try {
+    await chrome.tabs.remove(tabId);
+  } catch (error) {
+    logger.info("Error closing tab: " + error);
+  }
+}
+
+async function focusTab(tabId) {
+  try {
+    const tab = await chrome.tabs.get(tabId);
+    if (tab) {
+      const window = await chrome.windows.get(tab.windowId);
+      await chrome.windows.update(window.id, { focused: true });
+      await chrome.tabs.update(tabId, { active: true });
+    } else {
+      logger.info("Not found tab with id=" + tabId);
+    }
+  } catch (error) {
+    logger.info("Error focusing tab: " + error);
+  }
+}
+
+async function captureVisibleTab() {
+  const screenshotUrl = await chrome.tabs.captureVisibleTab();
+  if (typeof screenshotUrl === "undefined") {
+    throw new Error("No screenshot captured");
+  }
+  return screenshotUrl;
+}
+
+async function getEmail() {
+  if (typeof getSubstitutedEmail === "function") {
+    return getSubstitutedEmail();
+  }
+  if (!chrome.identity) {
+    return null;
+  }
+  const userInfo = await chrome.identity.getProfileUserInfo({accountStatus: "ANY"});
+  const email = userInfo["email"];
+  return email && email.trim().length > 0 ? email : null;
+}
+
+async function getDirectoryDeviceId() {
+  if (!chrome.enterprise || !chrome.enterprise.deviceAttributes) {
+    return null;
+  }
+  const deviceId = await chrome.enterprise.deviceAttributes.getDirectoryDeviceId();
+  logger.info("Start with requested directory device ID=" + deviceId);
+  return deviceId;
+}
+
+async function getSerialNumber() {
+  if (!chrome.enterprise || !chrome.enterprise.deviceAttributes) {
+    return null;
+  }
+  return await chrome.enterprise.deviceAttributes.getDeviceSerialNumber();
+}
+
+
+async function clearAllAlarms() {
+  try {
+    const wasCleared = await chrome.alarms.clearAll();
+    logger.info(wasCleared ? "All alarms cleared" : "Alarms not cleared");
+  } catch (error) {
+    logger.info("Alarms clear error: " + error);
+  }
+}
+
+async function sendCommandToTab(tabId, command) {
+  try {
+    await chrome.tabs.sendMessage(tabId, command);
+  } catch (error) {
+    const m = "Could not establish connection. Receiving end does not exist";
+    if (String(error).indexOf(m) !== -1) {
+      await chrome.scripting.executeScript({target: {tabId: tabId, allFrames: false}, files: ["teacherTools.js"]});
+      await chrome.tabs.sendMessage(tabId, command);
+    } else {
+      throw (error);
+    }
+  }
+}
+
+async function openLockWindow() {
+  const window = await chrome.windows.create({
+    state: "fullscreen",
+    type: "popup",
+    focused: true,
+    url: "blocking/block.html"
+  });
+  return window.id;
+}
+
+async function getLocation() {
+  let location;
+  try {
+    location = await chrome.runtime.sendMessage({action: "getLocation"});
+  } catch (error) {
+    location = {error: "Offscreen geolocation request failed: " + error};
+  }
+  if (!location) {
+    location = {error: "No location response from offscreen document"};
+  }
+  if (location.error) {
+    logger.info("Location error: " + location.error);
+  } else {
+    logger.info("Lat: " + location.latitude.toFixed(4) + " Lon: " + location.longitude.toFixed(4));
+  }
+  return location;
+}
+

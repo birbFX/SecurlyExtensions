@@ -1,0 +1,268 @@
+/**
+ * Created by Stan on 01/03/17
+ * Main server interaction functions
+ */
+"use strict";
+
+class Router {
+  constructor(url) {
+    this.url = url;
+    logger.warn("Router initialized for " + this.url);
+    this.queue = [];
+    this.isSending = false;
+    this.lastSync = null;
+  }
+
+  static getAck(message) {
+    if (message) {
+      if (message["requestType"] === REQUEST_DEVICE_NOT_FOUND) {
+        throw new Error(ERROR_DEVICE_NOT_FOUND);
+      }
+      return {seq: message["seq"], response: message["requestType"]};
+    } else {
+      return {};
+    }
+  }
+
+  get isStale() {
+    return !this.lastSync || (Date.now() - this.lastSync) > STALE_SESSION_TIMEOUT;
+  }
+
+  updateUrl(newUrl) {
+    this.url = newUrl;
+    logger.warn("Router url updated=" + this.url);
+  }
+
+  async sendCommand(message) {
+    Object.assign(message, {version: VERSION, udid: config.auth.deviceUdid, command: "ack"});
+    this.queue.push(message);
+    return await this.processQueue();
+  }
+
+  cleanSent() {
+    this.queue = this.queue.filter(command => !command["sent"]);
+  }
+
+  cleanQueue() {
+    this.queue.length = 0;
+  }
+
+  async processQueue() {
+    let result = false;
+    if (this.isSending) {
+      return true;
+    }
+    this.cleanSent();
+    this.isSending = true;
+    try {
+      for (const command of this.queue) {
+        logger.info("Sending command=" + JSON.stringify(command));
+        await this.send(command, FIRE_PATH);
+        console.info("Command " + JSON.stringify(command) + " sent successfully");
+        command["sent"] = true;
+      }
+      result = true;
+    } catch (error) {
+      logger.info("Failed to send command. Error=" + error);
+      result = false;
+    } finally {
+      this.isSending = false;
+      this.cleanSent();
+    }
+    return result;
+  }
+
+  async readCommands(messageAck) {
+    Object.assign(messageAck, {version: VERSION, udid: config.auth.deviceUdid, command: "ack"})
+    if (this.queue.length > 0) {
+      await this.processQueue();
+    }
+    logger.debug("Sending ack=" + JSON.stringify(messageAck));
+    const response = await this.send(messageAck, POLLING_PATH);
+    this.lastSync = Date.now();
+    return response;
+  }
+
+  async send(message, path) {
+    const response = await fetch(this.url + path, {
+      method: "POST",
+      headers: {
+        [HEADER_REG_CODE]: message["udid"],
+        "Content-Type": "application/json; charset=UTF-8"
+      },
+      signal: AbortSignal.timeout(HTTP_REQUEST_TIMEOUT),
+      body: JSON.stringify(message)
+    });
+    if (response) {
+      if (response.status === 200) {
+        let respText = await response.text();
+        if (respText) {
+          try {
+            return JSON.parse(respText);
+          } catch (error) {
+            if (respText.length > 200) {
+              respText = respText.substring(0, 200) + "...";
+            }
+            throw new Error("FETCH: Incorrect response=" + respText + ". Error=" + error);
+          }
+        }
+      } else if (response.status === HTTP_PRECONDITION_FAILED) {
+        throw new Error(ERROR_UPGRADE_REQUIRED);
+      } else {
+        throw new Error("FETCH: Server responded with http status=" + response.status);
+      }
+    }
+  }
+}
+
+async function processCommand(command) {
+  const action = actionFunctions[command["requestType"]];
+  if (typeof action !== "undefined") {
+    return action(command)
+  } else {
+    logger.info("Got unknown message: " + command["requestType"]);
+  }
+}
+
+async function processResponse(response) {
+  if (!response) {
+    return Promise.resolve();
+  }
+  logger.info("Process server commands: " + JSON.stringify(response));
+  let commands = response["commands"];
+  if (commands && commands.length > 0) {
+    return commands.reduce((previous, current) => previous.then(() => processCommand(current)), Promise.resolve());
+  } else {
+    return processCommand(response);
+  }
+}
+
+async function getAcks(response) {
+  let commands = response["commands"];
+  if (commands && commands.length > 0) {
+    return { responses: commands.map(command => Router.getAck(command)) };
+  } else if (response["requestType"]) {
+    return { responses: [Router.getAck(response)] };
+  }
+  return { responses: [] };
+}
+
+
+async function pollServer() {
+  logger.info("Long polling started");
+  chrome.alarms.create(ALARM_SEND_URLS, {periodInMinutes: 1});
+  const MAX_ERRORS = 3;
+  let errorCounter = 0;
+  let message = null;
+  let poll = true;
+  while (poll) {
+    try {
+      if (!message) {
+        message = Router.getAck();
+      }
+      const response = await router.readCommands(message);
+      errorCounter = 0;
+      if (response) {
+        message = await getAcks(response)
+            .catch(() => {
+              poll = false;
+            });
+        processResponse(response)
+            .catch(error => {
+              if (hasText(error, ERROR_DEVICE_NOT_FOUND)) {
+                poll = false;
+              } else {
+                logger.warn("Failed to process action for one of responses:" + response + " error: " + error)
+              }
+            });
+      } else {
+        message = null;
+      }
+    } catch (error) {
+      if (!config.auth.isLoggedIn) {
+        chrome.alarms.create(ALARM_REPEAT_LOGIN, {delayInMinutes: 1});
+        logger.info("Not logged in. Repeat login in 1 minute. Error: " + error);
+        poll = false;
+      } else if (hasText(error, ERROR_UPGRADE_REQUIRED)) {
+        poll = false;
+        await checkForUpgrade();
+      } else {
+        errorCounter += 1;
+        if (errorCounter >= MAX_ERRORS) {
+          chrome.alarms.create(ALARM_RESTART_POLLING, {delayInMinutes: 1});
+          logger.info("Schedule server polling restart due to error=" + error);
+          poll = false;
+        }
+        logger.info("Error #" + errorCounter + " while polling=" + error);
+      }
+    }
+  }
+  logger.info("Long polling stopped");
+  chrome.alarms.clear(ALARM_SEND_URLS);
+}
+
+//-----
+
+chrome.alarms.onAlarm.addListener(alarmProcessing);
+
+function alarmProcessing(alarm) {
+  logger.info("Fired alarm " + alarm.name);
+  switch (alarm.name) {
+    case ALARM_REPEAT_LOGIN:
+      loginToServer();
+      break;
+    case ALARM_SEND_PING:
+      sendPing();
+      break;
+    case ALARM_SEND_URLS:
+      sendLoggedUrls();
+      break;
+    case ALARM_RESTART_APP:
+      chrome.runtime.reload();
+      break;
+    case ALARM_RESTART_POLLING:
+      chrome.alarms.clear(ALARM_RESTART_POLLING);
+      if (!router) {
+        startApp();
+        break;
+      }
+      if (router.isStale) {
+        loginToServer();
+      } else {
+        pollServer();
+      }
+      break;
+    case ALARM_KEEPALIVE:
+      if (!config) {
+        startApp();
+      }
+      break;
+    default:
+      logger.info("Cannot process alarm");
+  }
+}
+
+async function sendMessage(remotePath, message) {
+  if (config) {
+    return fetch(createRequest(config.serverUrl + remotePath, JSON.stringify(message)));
+  } else {
+    throw new Error("No config");
+  }
+}
+
+function createRequest(url, data) {
+  const contentType = data instanceof Blob && data.type
+    ? data.type
+    : "application/json; charset=UTF-8";
+  const request = new Request(url, {
+    method: "POST",
+    headers: {
+      [HEADER_REG_CODE]: config.auth.deviceUdid,
+      "Content-Type": contentType
+    },
+    signal: AbortSignal.timeout(HTTP_REQUEST_TIMEOUT),
+    body: data
+  });
+  request.priority = "high";
+  return request
+}

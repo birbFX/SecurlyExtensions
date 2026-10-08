@@ -1,0 +1,1 @@
+console.log("Detection script injected: "+JSON.stringify(window.location));const ie=document.querySelectorAll("iframe");if(ie&&ie.length>0){chrome.runtime.sendMessage({action:"suspicious"})}

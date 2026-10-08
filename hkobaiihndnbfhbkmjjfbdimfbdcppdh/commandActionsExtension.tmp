@@ -1,0 +1,398 @@
+// Extension specific actions
+
+async function actionCloseTab(message) {
+  const tabId = message["tabId"];
+  const userId = message["userId"];
+  closeTab(tabId).then(() => updateScreenshot(message["url"], userId));
+}
+
+async function updateScreenshot(url, userId, withTabs = true) {
+  const tabs = await getTabsArray();
+  if (withTabs) {
+    router.sendCommand({
+      response: REQUEST_GET_TABS,
+      tabs: tabs,
+      userId: userId
+    });
+  }
+
+  if (tabs.length > 0) {
+    await getAndSendScreenshot(url, null, tabs[0].url, tabs[0].title);
+  }
+}
+
+async function actionFocusTab(message) {
+  const tabId = message["tabId"];
+  try {
+    await focusTab(tabId);
+    router.sendCommand({
+      response: message["requestType"],
+      tabId: tabId,
+      userId: message["userId"]
+    });
+    setTimeout(() => updateScreenshot(message["url"], message["userId"]), 1000);
+  } catch (error) {
+    logger.debug("Cannot focus tab: " + error);
+  }
+}
+
+async function actionChatMessage(message) {
+  config.chat.addMessage(message["chatMessage"], true);
+  updateTabListeners();
+  try {
+    await updateChatStatus(message["chatMessage"]);
+    if (config.chat.playAlert) {
+      chrome.runtime.sendMessage({action: "playSound"});
+    }
+    updateScreenshot(message["url"], message["userId"], false);
+  } catch (error) {
+    logger.debug("Failed to update chat status on incoming message");
+  }
+}
+
+async function actionClassSession(message) {
+  const sessionStateNotChanged = config.session.sessionId === (message.sessionId ?? null);
+  const hadActiveObservations = config.session.isObservationActive;
+
+  config.updateClassSessionState(message);
+
+  await updateIconAndTitle(config.session.activeClassNames);
+
+  if (message["showNotifications"] && hadActiveObservations !== config.session.isObservationActive) {
+    if (config.session.isObservationActive) {
+      showNotification(NOTIFICATION_SESSION_ID, "Class session is active",
+          "Your device could be monitored and remotely managed by a teacher");
+    } else {
+      showNotification(NOTIFICATION_SESSION_ID, "No active class session",
+          "Your device is not monitored and cannot be remotely managed by a teacher");
+    }
+  }
+
+  if (sessionStateNotChanged) {
+    return;
+  }
+
+  requestUrlMap.clear();
+
+  if (config.session.isObservationActive) {
+    await logCurrentTabUrl();
+  } else {
+    await sendLoggedUrls();
+  }
+
+  if (config.media.isSharing) {
+    await stopSharingScreen();
+  }
+
+  closeSharedScreenTab();
+
+  if (config.session.closeTabsTimeout != null) {
+    clearTimeout(config.session.closeTabsTimeout);
+    config.session.closeTabsTimeout = null;
+  }
+
+  config.session.isHandRaised = false;
+  await iconManager.clearRaiseHandIcon();
+  await updatePopup(config.session.isActive);
+  updateTabListeners();
+  updateMessageListener(config.session.isActive);
+  updateIdleListeners(message["idleTimeout"]);
+  await updateChatStatus();
+  await updateLockStatus();
+  if (message["closeTabs"]) {
+    const closeTabsWaitSeconds = parseInt(message["closeTabsWaitSeconds"]);
+    if (typeof closeTabsWaitSeconds === "number" && closeTabsWaitSeconds > 0) {
+      await warnAboutTabsClose(closeTabsWaitSeconds);
+      config.session.closeTabsTimeout = setTimeout(async function () {
+        logger.debug("Close tabs on session start after timeout");
+        await closeTabs(await getChromeTabs({}), !config.isChromeBook);
+        config.session.closeTabsTimeout = null;
+      }, closeTabsWaitSeconds * 1000);
+    } else {
+      logger.debug("Close tabs on session start");
+      await closeTabs(await getChromeTabs({}), !config.isChromeBook);
+    }
+  } else if (config.session.maxOpenTabs > 0) {
+    const openedTabs = await getChromeTabs({});
+    if (openedTabs.length > config.session.maxOpenTabs) {
+      await closeTabs(openedTabs.slice(config.session.maxOpenTabs), !config.isChromeBook);
+    }
+  }
+
+  config.media.conferenceUrl = null;
+
+  if (config.session.maximizeFocusedWindow) {
+    try {
+      const window = await chrome.windows.getLastFocused();
+      if (window) {
+        await chrome.windows.update(window.id, {state: "maximized"});
+      }
+    } catch(error) {
+      logger.debug("Cannot maximize window: " + error);
+    }
+  }
+  updateWindowListeners();
+}
+
+async function actionClassSessionSettingsUpdate(message) {
+  config.session.canRaiseHand = !!message["allowHandRaise"];
+  config.session.isHandRaised = false;
+  config.chat.canStart = !!message["canStartChat"];
+  config.chat.playAlert = !!message["playChatAlertToStudent"];
+  updateIconAndTitle(config.session.activeClassNames);
+}
+
+async function actionBlockLocalHtml(message) {
+  await applyBlockLocalHtml(!!message["blockLocalHtml"]);
+}
+
+async function stopSharingScreen() {
+  config.media.stopSharing();
+  await iconManager.noShareScreenIcon();
+  showNotification(NOTIFICATION_SCREEN_SHARING_ID,
+      "Screen sharing ended", "Your teacher has stopped sharing your screen");
+}
+
+async function logCurrentTabUrl() {
+  let tabs = await getChromeTabs({lastFocusedWindow: true, active: true});
+  if (!tabs || !tabs.length > 0) {
+    tabs = await getChromeTabs({active: true});
+    if (!tabs || !tabs[0] || !tabs[0].url) {
+      return;
+    }
+  }
+  const tab = tabs[0];
+  if (!tab.url) {
+    return;
+  }
+  urlStorage.saveUrl(tab.url, tab.title);
+}
+
+async function actionClearRaisedHand() {
+  config.session.isHandRaised = false;
+  iconManager.clearRaiseHandIcon();
+}
+
+async function actionConference(message) {
+  const conferenceUrl = message["url"];
+  const lockToSession = message["lockToSession"];
+  if (!conferenceUrl && config.media.conferenceUrl !== null) {
+    config.blocking.clearWhitelist();
+    updateTabListeners();
+    await updateLockStatus();
+    config.media.conferenceUrl = null;
+    return;
+  }
+  if (config.media.conferenceUrl !== conferenceUrl) {
+    config.media.conferenceUrl = conferenceUrl;
+  }
+  try {
+    if (config.session.maxOpenTabs > 0) {
+      const openedTabs = await getChromeTabs({});
+      if (openedTabs && openedTabs.length >= config.session.maxOpenTabs) {
+        config.session.additionalOpenTabs = openedTabs.length - config.session.maxOpenTabs + 1;
+      }
+    }
+    await chrome.tabs.create({url: conferenceUrl});
+    if (lockToSession) {
+      const whitelist = [escapeRegex(conferenceUrl)];
+      config.screen.unlock(); // Unlock screen if locked
+      config.blocking.whitelist = whitelist;
+      updateTabListeners();
+      await updateLockStatus();
+    }
+  } catch (error) {
+    logger.debug("Cannot open tab for conference. Error=" + error);
+  }
+}
+
+function escapeRegex(string) {
+  return string.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
+async function actionGetTabs(message) {
+  const tabsArray = await getTabsArray();
+  router.sendCommand({
+    response: message["requestType"],
+    tabs: tabsArray,
+    userId: message["userId"]
+  });
+}
+
+async function getTabsArray() {
+  let activeTab = null;
+  const activeTabs = await getChromeTabs({lastFocusedWindow: true, active: true});
+  if (activeTabs.length > 0) {
+    activeTab = activeTabs[0];
+  }
+
+  const tabs = await getChromeTabs({});
+  logger.info("Got " + tabs.length + " tabs");
+  let tabsArray = [];
+  let activeTabIndex = -1;
+  tabs.forEach(function (tab, index) {
+    const t = {
+      id: tab.id,
+      url: tab.url,
+      title: tab.title
+    };
+    if (activeTab != null && tab.id === activeTab.id) {
+      activeTabIndex = index;
+    }
+    tabsArray.push(t);
+  });
+  if (activeTabIndex !== -1) {
+    // Move active tab to the first position in array
+    tabsArray.splice(0, 0, tabsArray.splice(activeTabIndex, 1)[0]);
+  }
+  return tabsArray;
+}
+
+async function actionLockScreen(message) {
+  logger.info('Lock screen requested');
+  config.blocking.clearWhitelist() // Unlock site if locked
+  config.screen.lock(message["screenBlockMessage"]);
+  updateTabListeners();
+  updateWindowListeners();
+  try {
+    config.screen.blockWindowId = await openLockWindow();
+    await updateWindowFullscreen(config.screen.blockWindowId)
+  } catch (error) {
+    logger.debug("Cannot create lock window: " + error);
+  }
+  await updateLockStatus();
+  setTimeout(() => updateScreenshot(message["url"], message["userId"], false), 1000);
+}
+
+async function actionUnlock(message) {
+  logger.info('Unlock requested');
+  config.screen.unlock();
+  config.blocking.clearWhitelist();
+  config.blocking.canvasAssignmentIds = [];
+  await applyBlockingPlan();
+  updateTabListeners();
+  updateWindowListeners();
+  if (config.screen.blockWindowId !== 0) {
+    try {
+      await chrome.windows.remove(config.screen.blockWindowId);
+    } catch (error) {
+      logger.debug("Error while closing block window: " + error);
+    }
+  }
+  await updateLockStatus();
+  updateScreenshot(message["url"], message["userId"], false);
+}
+
+async function actionTeacherMessage(message) {
+  config.teacher.setAnnouncement(message["teacherMessage"], message["teacherName"], message["teacherId"]);
+  updateTabListeners();
+  await updateLockStatus();
+  router.sendCommand(createAnnouncementResponse(false));
+  updateScreenshot(message["url"], message["userId"], false);
+}
+
+async function actionBlockingPlan(message) {
+  logger.warn("Got blocking plan");
+  const orgBlocklist = message["orgBlocklist"];
+  const blockingPlanUrls = message["blockingPlanUrls"];
+  const blockingPlanName = message["blockingPlanName"];
+  const blockingPlanId = message["blockingPlanId"];
+  const blockType = message["blockType"];
+  config.blocking.orgBlocklist = orgBlocklist;
+  config.blocking.savePlan(blockingPlanUrls, blockingPlanName, blockingPlanId, blockType);
+  if (!config.blocking.isSiteLocked) {
+    config.blocking.clearWhitelist();
+    await applyBlockingPlan();
+  }
+  updateTabListeners();
+  await updateLockStatus(false);
+}
+
+async function actionOpenSite(message) {
+  logger.debug("Got open site command");
+  const urls = message["urls"];
+  let windows;
+  try {
+    windows = await chrome.windows.getAll({populate: true});
+  } catch (error) {
+    logger.debug("Cannot get windows for open site: " + error);
+  }
+  if (!windows || windows.length === 0) {
+    await createWindow(urls);
+  } else {
+    await openSites(urls);
+  }
+  setTimeout(() => updateScreenshot(message["url"], message["userId"]), 1000);
+}
+
+async function actionRequestShareScreen(message) {
+  if (message["deviceId"]) {
+    logger.info("Got screen share request");
+    updateTabListeners();
+    const requestScreenShareMessage = {
+      command: "requestShareScreen",
+      userId: message["userId"],
+      deviceId: message["deviceId"],
+      lock: message["lock"]
+    };
+    const tabs = await getChromeTabs({});
+    for (const tab of tabs) {
+      if (typeof tab.id === "number") {
+        try {
+          await sendCommandToTab(tab.id, requestScreenShareMessage);
+        } catch (error) {
+          logger.debug("Error while requesting screen share: " + error);
+        }
+      }
+    }
+  } else {
+    await stopSharingScreen();
+  }
+}
+
+async function actionSiteLock(message) {
+  logger.info("Got site lock command");
+  config.screen.unlock(); // Unlock screen if locked
+  config.blocking.whitelist = message["whitelistPatterns"];
+  config.blocking.lockedToCourseWorkResources = !!message["courseWorkResources"];
+  if (config.blocking.lockedToCourseWorkResources) {
+    config.blocking.canvasAssignmentIds = extractCanvasAssignmentIds(message["urls"]);
+  }
+  await applyWhiteList(message["whitelistPatterns"], null, !!message["courseWorkResources"]);
+  updateTabListeners();
+  await siteLock(message["urls"], message["closeTabs"], message["notOpenTabs"]);
+  setTimeout(() => updateScreenshot(message["url"], message["userId"]), 1000);
+}
+
+async function checkForUpgrade() {
+  logger.info("Needs update check. Current version=" + VERSION);
+  if (config.updateCheckDate.getTime() < (new Date()).getTime()) {
+    logger.info("Checking for extension update");
+    const nextCheckDate = new Date();
+    const delayMinutes = 10;
+    nextCheckDate.setTime(nextCheckDate.getTime() + delayMinutes * 60 * 1000); // 10 minutes
+    await config.saveUpdateCheckDate(nextCheckDate);
+    const status = await new Promise(resolve => {
+      chrome.runtime.requestUpdateCheck(resolve);
+    });
+    logger.info("Update check status: " + status);
+    switch (status) {
+      case UPDATE_STATUS_AVAILABLE:
+        logger.warn("Extension update available, will reload");
+        chrome.runtime.reload();
+        break;
+      case UPDATE_STATUS_THROTTLED:
+        const extendedDate = new Date();
+        extendedDate.setTime(extendedDate.getTime() + 60 * 60 * 1000); // 1 hour
+        logger.warn("Update check is throttled. Next check time is " + extendedDate);
+        await config.saveUpdateCheckDate(extendedDate);
+        processExtensionUpgradeError(60);
+        break;
+      default:
+        processExtensionUpgradeError(delayMinutes);
+    }
+  } else {
+    logger.warn("Next update check time is " + config.updateCheckDate)
+    processExtensionUpgradeError();
+  }
+}

@@ -1,0 +1,93 @@
+// Actions extension performs based on commands received from the server
+
+const actionLocation = async function (message) {
+  getLocation()
+      .then(location => {
+        const response = {response: message["requestType"]};
+        router.sendCommand(Object.assign(response, location));
+      })
+      .catch(error => {
+        logger.warn("Failed to get location: " + error);
+      })
+};
+
+async function actionAuthConfirm(message) {
+  const deviceUdid = message["udid"];
+  logger.warn("DeviceUdid set to: " + deviceUdid);
+  IconManager.clearBadge();
+  await config.auth.saveDeviceUdid(deviceUdid)
+}
+
+async function actionDeviceNotFound(message) {
+  IconManager.markNotAuthorized();
+  if (message["reason"] && message["reason"] !== REASON_WINDOWS_NOT_ALLOWED) {
+    config.auth.loginErrorReason = message["reason"];
+  }
+  await config.auth.saveDeviceUdid(null);
+  chrome.runtime.onMessage.addListener(pageMessageListener);
+  logger.debug("MESSAGE LISTENER ADDED");
+  chrome.action.onClicked.addListener(loginFromButton);
+  await clearAllAlarms();
+  throw new Error(ERROR_DEVICE_NOT_FOUND);
+}
+
+async function actionChangeServerUrl(message) {
+  await config.saveServerUrl(message["serverUrl"]);
+  router.updateUrl(message["serverUrl"]);
+}
+
+async function actionLogUpdate(message) {
+  const logEnabled = message["shouldSendLogs"];
+  logger.remoteEnabled = logEnabled;
+  if (logEnabled) {
+    chrome.alarms.create(ALARM_SEND_PING, {periodInMinutes: 5});
+  } else {
+    chrome.alarms.clear(ALARM_SEND_PING);
+  }
+  logger.warn("Logging updated to " + logEnabled + " at " + new Date());
+}
+
+async function actionLoginConfirmation(message) {
+  config.auth.studentId = message["studentId"];
+  config.auth.studentName = message["studentName"];
+  config.auth.isLoggedIn = true;
+  await applyBlockLocalHtml(!!message["blockLocalHtml"]);
+  logger.warn("Complete login routine. Screen " +
+      (config.screen.isLocked ? "is locked with text '" + config.screen.blockedText + "'" : " is not locked"));
+}
+
+async function actionScreenshot(message) {
+  logger.info('Screenshot requested');
+  const tabs = await getChromeTabs({currentWindow: true, active: true});
+  if (tabs.length > 0) {
+    getAndSendScreenshot(message["url"], message["size"], tabs[0].url, tabs[0].title);
+  } else {
+    logger.info("No tabs found to capture");
+  }
+}
+
+async function getAndSendScreenshot(screenshotUrl, size, currentTabUrl, currentTabTitle) {
+  try {
+    const dataUrl = config.media.capturedScreen !== null ? config.media.capturedScreen : await captureVisibleTab();
+    if (!size || size === SCREENSHOT_SIZE.BIG) {
+      await sendScreenshot(dataUrl, screenshotUrl, SCREENSHOT_SIZE.BIG, currentTabUrl, currentTabTitle);
+      await sendScreenshot(dataUrl, screenshotUrl, SCREENSHOT_SIZE.SMALL, currentTabUrl, currentTabTitle);
+    } else {
+      await sendScreenshot(dataUrl, screenshotUrl, size, currentTabUrl, currentTabTitle);
+    }
+  } catch (error) {
+    if (currentTabUrl && !/^https?:\/\//i.test(currentTabUrl)) {
+      await sendScreenshotUnavailable(screenshotUrl, currentTabUrl, currentTabTitle);
+    } else {
+      logger.info("Error capture visible tab: " + error);
+    }
+  }
+}
+
+actionFunctions[REQUEST_AUTH_CONFIRM] = actionAuthConfirm;
+actionFunctions[REQUEST_CHANGE_SERVER_URL] = actionChangeServerUrl;
+actionFunctions[REQUEST_DEVICE_NOT_FOUND] = actionDeviceNotFound;
+actionFunctions[REQUEST_LOCATION] = actionLocation;
+actionFunctions[REQUEST_LOG_UPDATE] = actionLogUpdate;
+actionFunctions[REQUEST_LOGIN_CONFIRMATION] = actionLoginConfirmation;
+actionFunctions[REQUEST_SCREENSHOT] = actionScreenshot;

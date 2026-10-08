@@ -1,0 +1,74 @@
+/**
+ * Main app lifecycle start
+ */
+async function st() {
+  await clearAllAlarms();
+  chrome.alarms.create(ALARM_KEEPALIVE, {periodInMinutes: 1});
+  setTitle();
+  iconManager = new IconManager();
+  await iconManager.noActiveClassIcon();
+  config = await Config.load();
+  router = new Router(config.serverUrl);
+  config.auth.userEmail = await getEmail();
+  urlStorage = await UrlStorage.load();
+  await obtainDirectoryDeviceId();
+  await loginToServer();
+}
+
+async function obtainDirectoryDeviceId() {
+    const directoryDeviceId = await getDirectoryDeviceId();
+    if (directoryDeviceId) {
+      config.auth.directoryDeviceId = directoryDeviceId;
+    } else if (typeof substituteDeviceId === "function") {
+      substituteDeviceId();
+    }
+}
+
+function onceAtATime(fn) {
+  let inflight = null;
+  return async function () {
+    if (inflight) {
+      return inflight;
+    }
+    inflight = fn().finally(function () {
+      inflight = null;
+    });
+    return inflight;
+  };
+}
+
+const createOffscreen = onceAtATime(async function () {
+  try {
+    await chrome.offscreen.createDocument({
+      url: "o.html",
+      reasons: ["WORKERS", "GEOLOCATION", "AUDIO_PLAYBACK"],
+      justification: "keep connection to server, access geolocation and play notification sounds",
+    });
+    logger.info("Offscreen document created");
+  } catch (e) {
+    if (String(e).includes("Only a single offscreen document may be created")) {
+      logger.warn("Offscreen document already exists");
+    } else {
+      logger.warn("Failed to create offscreen document: " + e);
+    }
+  }
+});
+
+const startApp = onceAtATime(async function () {
+  if (HAS_UNSUPPORTED_VERSION) {
+    return;
+  }
+  await createOffscreen();
+  await st();
+});
+
+chrome.runtime.onSuspend.addListener(function() {
+  logger.debug('App suspended');
+});
+
+self.onmessage = () => {
+  if (!config) {
+    logger.warn("restarting app");
+    startApp();
+  }
+};

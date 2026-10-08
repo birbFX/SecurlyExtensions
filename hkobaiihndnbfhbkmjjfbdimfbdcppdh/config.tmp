@@ -1,0 +1,307 @@
+/**
+ * Created by Stan on 01/03/17.
+ * Class responsible for configuration storage
+ */
+"use strict";
+
+class ScreenState {
+  constructor() {
+    this._isLocked = false;
+    this.blockMessage = DEFAULT_BLOCK_MESSAGE;
+    this.blockWindowId = 0;
+  }
+
+  get isLocked() {
+    return this._isLocked;
+  }
+
+  get blockedText() {
+    return this.blockMessage || DEFAULT_BLOCK_MESSAGE;
+  }
+
+  lock(message) {
+    this.blockMessage = message;
+    this._isLocked = true;
+    logger.debug("Screen locked with the message: " + message);
+  }
+
+  unlock() {
+    this.blockMessage = null;
+    this._isLocked = false;
+    logger.debug("Screen lock removed");
+  }
+}
+
+class ChatState {
+  constructor() {
+    this.messages = [];
+    this.hasUnread = false;
+    this.canStart = false;
+    this.playAlert = false;
+  }
+
+  get isActive() {
+    return this.messages.length > 0;
+  }
+
+  addMessage(message, markUnread) {
+    this.messages.push(message);
+    if (markUnread) {
+      this.hasUnread = true;
+    }
+  }
+
+  markRead() {
+    this.hasUnread = false;
+  }
+}
+
+class BlockingState {
+  constructor() {
+    this.planType = "Allow_all";
+    this.planUrls = null;
+    this.planName = null;
+    this.planId = null;
+    this._whitelist = null;
+    this.orgBlocklist = null;
+    this.lockedToCourseWorkResources = false;
+    this.canvasAssignmentIds = [];
+    this.rulesCount = 0;
+    this.blockLocalHtml = false;
+  }
+
+  get isSiteLocked() {
+    return !!this._whitelist;
+  }
+
+  get whitelist() {
+    if (this._whitelist) {
+      return this._whitelist;
+    }
+    return this.planType === BLOCK_TYPE_ALLOW_ONLY ? this.planUrls : null;
+  }
+
+  set whitelist(value) {
+    this._whitelist = value;
+  }
+
+  savePlan(urls, name, id, type) {
+    this.planUrls = urls;
+    this.planName = name;
+    this.planId = id;
+    this.planType = type;
+  }
+
+  clearWhitelist() {
+    this.lockedToCourseWorkResources = false;
+    this._whitelist = null;
+  }
+}
+
+class AuthState {
+  constructor(items, store) {
+    this._items = items;
+    this._store = store;
+    this.directoryDeviceId = null;
+    this.userEmail = null;
+    this.studentId = null;
+    this.studentName = null;
+    this.isLoggedIn = false;
+    this.loginErrorReason = null;
+  }
+
+  get deviceUdid() {
+    return this._items[STORAGE_UDID];
+  }
+
+  async saveDeviceUdid(deviceUdid) {
+    return this._store(STORAGE_UDID, deviceUdid);
+  }
+}
+
+class SessionState {
+  constructor() {
+    this.sessionId = null;
+    this.activeClassNames = [];
+    this.canRaiseHand = false;
+    this.isHandRaised = false;
+    this.tabListenersAdded = false;
+    this.closeTabsTimeout = null;
+    this.maxOpenTabs = 0;
+    this.additionalOpenTabs = 0;
+    this.maximizeFocusedWindow = false;
+    this.activeTabId = null;
+  }
+
+  get isActive() {
+    return this.sessionId != null;
+  }
+
+  get isObservationActive() {
+    return this.sessionId != null || this.activeClassNames.length > 0;
+  }
+
+  updateFromServer(message) {
+    this.sessionId = message["sessionId"] ? message["sessionId"] : null;
+    this.canRaiseHand = !!message["allowHandRaise"];
+    this.maximizeFocusedWindow = !!message["maximizeFocused"];
+    const maxOpenTabs = parseInt(message["maxOpenTabs"]);
+    this.maxOpenTabs = Number.isFinite(maxOpenTabs) ? maxOpenTabs : 0;
+    this.additionalOpenTabs = 0;
+    this.activeClassNames = message["activeClassNames"] ? message["activeClassNames"] : [];
+  }
+}
+
+class TeacherState {
+  constructor() {
+    this.id = null;
+    this.name = null;
+    this.announce = null;
+  }
+
+  setAnnouncement(message, name, id) {
+    this.announce = message;
+    this.name = name;
+    this.id = id;
+  }
+
+  clearAnnouncement() {
+    this.announce = null;
+    this.id = null;
+  }
+}
+
+class MediaState {
+  constructor() {
+    this.smallScreenshotWidth = 0;
+    this.smallScreenshotHeight = 0;
+    this.bigScreenshotWidth = 0;
+    this.bigScreenshotHeight = 0;
+    this.shareScreenHandler = null;
+    this.capturedScreen = null;
+    this.conferenceUrl = null;
+  }
+
+  get isSharing() {
+    return this.shareScreenHandler !== null;
+  }
+
+  startSharing(handler) {
+    this.shareScreenHandler = handler;
+  }
+
+  stopSharing() {
+    clearInterval(this.shareScreenHandler);
+    this.capturedScreen = null;
+    this.shareScreenHandler = null;
+  }
+
+  updateScreenshotDimensions(message) {
+    this.smallScreenshotWidth = message["smallScreenshotWidth"] ? message["smallScreenshotWidth"] : 0;
+    this.smallScreenshotHeight = message["smallScreenshotHeight"] ? message["smallScreenshotHeight"] : 0;
+    this.bigScreenshotWidth = message["bigScreenshotWidth"] ? message["bigScreenshotWidth"] : 0;
+    this.bigScreenshotHeight = message["bigScreenshotHeight"] ? message["bigScreenshotHeight"] : 0;
+  }
+}
+
+class Config {
+  static async load() {
+    let items;
+    try {
+      items = await chrome.storage.local.get();
+    } catch (error) {
+      logger.info("Error loading config from storage: " + error);
+    }
+    const config = new Config(items || {});
+    await config.initializePlatform();
+    return config;
+  }
+
+  constructor(config) {
+    this.items = config;
+    if (!config[STORAGE_SERVER_URL]) {
+      this.items[STORAGE_SERVER_URL] = SERVER;
+    }
+    this._pingCount = 0;
+    this.isChromeBook = true;
+    this.auth = new AuthState(this.items, this.store.bind(this));
+
+    this.blocking = new BlockingState();
+    this.screen = new ScreenState();
+    this.session = new SessionState();
+    this.chat = new ChatState();
+    this.teacher = new TeacherState();
+    this.media = new MediaState();
+  }
+
+  updateClassSessionState(message) {
+    this.session.updateFromServer(message);
+    this.teacher.clearAnnouncement();
+    this.chat.hasUnread = false;
+    this.chat.messages = message["chatMessages"] ? message["chatMessages"] : [];
+    this.chat.canStart = !!message["canStartChat"];
+    this.chat.playAlert = !!message["playChatAlertToStudent"];
+    this.media.updateScreenshotDimensions(message);
+  }
+
+  async initializePlatform() {
+    try {
+      const platformInfo = await chrome.runtime.getPlatformInfo();
+      this.isChromeBook = platformInfo.os === "cros";
+      logger.info("Platform detected: " + platformInfo.os + ", isChromeBook: " + this.isChromeBook);
+    } catch (error) {
+      logger.info("Failed to get platform info: " + error);
+      this.isChromeBook = false;
+    }
+  }
+
+  get serverUrl() {
+    return this.items[STORAGE_SERVER_URL];
+  }
+
+  async saveServerUrl(serverUrl) {
+    return this.store(STORAGE_SERVER_URL, serverUrl)
+  }
+
+
+
+  get pingCount() {
+    return this._pingCount++;
+  }
+
+  clearPingCount() {
+    this._pingCount = 0;
+  }
+
+  get updateCheckDate() {
+    return new Date(parseInt(this.items[STORAGE_UPDATE_CHECK_DATE]));
+  }
+
+  async saveUpdateCheckDate(date) {
+    return this.store(STORAGE_UPDATE_CHECK_DATE, date.getTime());
+  }
+
+
+
+  async store(key, value) {
+    if (value !== null && value !== undefined) {
+      this.items[key] = value;
+      try {
+        await chrome.storage.local.set({[key]: value});
+        logger.info("Stored " + JSON.stringify(value) + " for key: " + key);
+      } catch (error) {
+        logger.info("Failed to save object " + JSON.stringify(value) + " for key '" + key +
+            "'. Error is: " + error);
+      }
+    } else {
+      delete this.items[key];
+      try {
+        await chrome.storage.local.remove([key]);
+        logger.info("Key '" + key + "' removed");
+      } catch (error) {
+        logger.info("Failed to remove key '" + key + "'. Error is: " + error);
+      }
+    }
+  }
+
+}

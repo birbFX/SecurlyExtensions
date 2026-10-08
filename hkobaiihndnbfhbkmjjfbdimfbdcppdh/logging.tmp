@@ -1,0 +1,34 @@
+const _consoleLog = console.log;
+
+const logger = {
+  logCount: 0,
+  remoteEnabled: true,
+
+  debug: function (msg) { _log("debug", msg); },
+  info:  function (msg) { _log("info",  msg); },
+  warn:  function (msg) { _log("warn",  msg); },
+};
+
+function _log(level, msg) {
+  _consoleLog(msg);
+  if (!config) {
+    return;
+  }
+  const alwaysRemote = level === "warn";
+  if (!logger.remoteEnabled && !alwaysRemote) {
+    return;
+  }
+  const udid = config.auth.deviceUdid ? config.auth.deviceUdid : config.auth.directoryDeviceId;
+  if (!udid) {
+    return;
+  }
+  const message = {
+    udid: udid,
+    logNum: logger.logCount,
+    logString: msg,
+    logSource: "extension"
+  };
+  logger.logCount += 1;
+  sendMessage("/agent/chrome/debug", message)
+    .catch(error => _consoleLog("Error while sending logs to server: " + error));
+}

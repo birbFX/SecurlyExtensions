@@ -1,0 +1,149 @@
+const SERVER = "https://deviceconsole.securly.com";
+const IGNORED_URLS = ["kidsa-z.com/main/Login","richmondlp.com"];
+const VERSION = chrome.runtime.getManifest().version;
+const MANIFEST_VERSION = chrome.runtime.getManifest().manifest_version;
+const HAS_UNSUPPORTED_VERSION = typeof chrome.offscreen === "undefined";
+
+const POLLING_PATH = "/chrome/handle";
+const FIRE_PATH = "/chrome/fire";
+const HTTP_PRECONDITION_FAILED = 412;
+
+// Message types client sends
+const COMMAND_AUTHENTICATE = "authenticate";
+const COMMAND_GET_ORG_URL = "get_org_url";
+const COMMAND_HAND_RAISED = "chrome_hand_raised";
+const COMMAND_IDLE_STATUS_CHANGE = "chrome_idle_status_change";
+const COMMAND_LOGIN = "chrome_login";
+
+// Message types client receives
+const REQUEST_AUTH_CONFIRM = "chrome_auth_confirm";
+const REQUEST_CHANGE_SERVER_URL = "chrome_change_server_url";
+const REQUEST_DEVICE_NOT_FOUND = "chrome_device_not_found";
+const REQUEST_LOCATION = "chrome_get_location";
+const REQUEST_LOGIN_CONFIRMATION = "chrome_login_confirmation";
+const REQUEST_LOG_UPDATE = "chrome_update_logging";
+const REQUEST_BLOCK_LOCAL_HTML = "chrome_block_local_html";
+
+const REQUEST_BLOCKING_PLAN = "chrome_blocking_plan";
+const REQUEST_CHAT_MESSAGE = "chrome_chat_message";
+const REQUEST_CLASS_SESSION = "chrome_session";
+const REQUEST_CLASS_SESSION_SETTINGS_UPDATE = "chrome_session_update";
+const REQUEST_CLEAR_RAISED_HAND = "chrome_clear_raised_hand";
+const REQUEST_CLOSE_TAB = "chrome_close_tab";
+const REQUEST_FOCUS_TAB = "chrome_focus_tab";
+const REQUEST_GET_TABS = "chrome_get_tabs";
+const REQUEST_LOCK_SCREEN = "chrome_lock_screen";
+const REQUEST_OPEN_SITE = "chrome_open_site";
+const REQUEST_SCREENSHOT = "chrome_get_screenshot";
+const REQUEST_SHARE_STUDENT_SCREEN = "chrome_screen_share";
+const REQUEST_SITE_LOCK = "chrome_site_lock";
+const REQUEST_TEACHER_MESSAGE = "chrome_teacher_message";
+const REQUEST_TEACHER_SCREEN_SHARE = "chrome_teacher_screen_share";
+const REQUEST_UNLOCK = "chrome_unlock";
+
+// Common error messages
+const ERROR_DEVICE_NOT_FOUND = "device not found";
+const ERROR_UPGRADE_REQUIRED = "chrome_upgrade";
+
+// Local storage keys
+const STORAGE_SERVER_URL = "serverUrl";
+const STORAGE_UDID = "udid";
+const STORAGE_UPDATE_CHECK_DATE = "updateCheckDate"
+const STORAGE_URLS = "visitedUrls";
+
+// Message parameter's values
+const BLOCK_TYPE_ALLOW_ONLY = "Allow_only";
+const BLOCK_TYPE_BLOCK_ONLY = "Block_only";
+
+// Local param's values
+const ALARM_REPEAT_LOGIN = "repeatLogin";
+const ALARM_RESTART_POLLING = "restartPolling";
+const ALARM_RESTART_APP = "restartForUpgrade";
+const ALARM_SEND_URLS = "sendUrls";
+const ALARM_SEND_PING = "ping";
+const ALARM_KEEPALIVE = "keepalive";
+const HEADER_REG_CODE = "X-TabPilot-RegCode";
+const HTTP_REQUEST_TIMEOUT = 80*1000;
+const STALE_SESSION_TIMEOUT = 10*60*1000;
+const NOTIFICATION_SESSION_ID = "session_start";
+const NOTIFICATION_SCREEN_SHARING_ID = "screen_sharing";
+
+const ALLOWED_DOMAINS = ["accounts.google.com", "accounts.youtube.com", "canvaslms.com"];
+const ALLOWED_INITIATORS = ["classroom.google.com", "docs.google.com", "assignments.google.com"];
+
+const RULE_SET_WHITELIST = [{
+  id: 1,
+  priority: 1,
+  action: {
+    type: "redirect",
+    redirect: {url: ""}
+  },
+  condition: {
+    urlFilter: "*",
+    excludedInitiatorDomains: [chrome.runtime.id, SERVER.replace("https://", ""), "deviceconsole.securly.com",
+      "techpilotlabs.com"],
+    excludedRequestDomains: [SERVER.replace("https://", ""), "deviceconsole.securly.com", "techpilotlabs.com"],
+    resourceTypes: ["main_frame"]
+  }
+}];
+const RULE_ALLOW_CANVAS_LOGIN = {
+  action: {
+    type: "allow",
+  },
+  id: 0,
+  priority: 2,
+  condition: {
+    resourceTypes: ["main_frame"],
+    urlFilter: "||instructure.com/login"
+  }
+}
+const RULE_TEMPLATE_ALLOW = {
+  action: {
+    type: "allow",
+  },
+  id: 0,
+  priority: 2,
+  condition: {
+    resourceTypes: ["main_frame"]
+  }
+};
+const RULE_ALLOW_COURSEWORK = {
+  action: {
+    type: "allow",
+  },
+  id: 0,
+  priority: 2,
+  condition: {
+    requestDomains: ["docs.google.com"],
+    initiatorDomains: ["classroom.google.com"],
+    resourceTypes: ["main_frame"]
+  }
+};
+const RULE_TEMPLATE_BLOCK = {
+  id: 0,
+  priority: 1,
+  action: {
+    type: "redirect",
+    redirect: {url: ""}
+  },
+  condition: {
+    regexFilter: "",
+    resourceTypes: ["main_frame"]
+  }
+};
+const DEFAULT_BLOCK_MESSAGE = "Your device is blocked";
+const TITLE_CLASS_SESSION = "Class session is active";
+const UPDATE_STATUS_AVAILABLE = "update_available";
+const UPDATE_STATUS_THROTTLED = "throttled";
+const SCREENSHOT_SIZE = Object.freeze({
+  SMALL: "SMALL",
+  BIG: "BIG",
+  FULL: "FULL",
+});
+
+// Actions on received messages
+const actionFunctions = {};
+
+var config = null;
+var iconManager = null;
+var router = null;

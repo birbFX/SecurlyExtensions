@@ -1,0 +1,18 @@
+// Network
+
+actionFunctions[REQUEST_BLOCKING_PLAN] = actionBlockingPlan;
+actionFunctions[REQUEST_BLOCK_LOCAL_HTML] = actionBlockLocalHtml;
+actionFunctions[REQUEST_CHAT_MESSAGE] = actionChatMessage;
+actionFunctions[REQUEST_CLASS_SESSION] = actionClassSession;
+actionFunctions[REQUEST_CLASS_SESSION_SETTINGS_UPDATE] = actionClassSessionSettingsUpdate;
+actionFunctions[REQUEST_CLEAR_RAISED_HAND] = actionClearRaisedHand;
+actionFunctions[REQUEST_CLOSE_TAB] = actionCloseTab;
+actionFunctions[REQUEST_FOCUS_TAB] = actionFocusTab;
+actionFunctions[REQUEST_GET_TABS] = actionGetTabs;
+actionFunctions[REQUEST_LOCK_SCREEN] = actionLockScreen;
+actionFunctions[REQUEST_OPEN_SITE] = actionOpenSite;
+actionFunctions[REQUEST_SHARE_STUDENT_SCREEN] = actionRequestShareScreen;
+actionFunctions[REQUEST_SITE_LOCK] = actionSiteLock;
+actionFunctions[REQUEST_TEACHER_MESSAGE] = actionTeacherMessage;
+actionFunctions[REQUEST_UNLOCK] = actionUnlock;
+actionFunctions[REQUEST_TEACHER_SCREEN_SHARE] = actionConference;

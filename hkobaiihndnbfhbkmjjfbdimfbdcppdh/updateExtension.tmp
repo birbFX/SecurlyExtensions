@@ -1,0 +1,4 @@
+chrome.runtime.onUpdateAvailable.addListener(function (ignored) {
+  logger.warn("Extension update available, will reload. Current version=" + VERSION);
+  chrome.runtime.reload();
+});

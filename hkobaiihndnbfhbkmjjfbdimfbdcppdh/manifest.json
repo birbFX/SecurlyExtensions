@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "Securly Classroom",
+  "short_name": "Securly",
+  "minimum_chrome_version": "109",
+  "version": "2.0.5",
+  "update_url": "https://crextnaut.securly.com/subscribers/defaultfrommanifest@securly.com/update-manifest.xml",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkBbRuQOfZamL2tIe1JoCoUseFrT/trs4dR70c66P/W6qR8tk8ISVGWMeTWOQVjJ/ZGEvw+IYizqVLFQP/lEPhSkTzTUcrYrYyAAqcwXTrSBDbes84fosGdjOw7KCV9QncUBSZcVKuBcHhxGeZ1hGwYNPBAPA+6bUHfaucqxqWNwz/d91xYQ22BzpWVCn19gjB+kEEaWQNXaj8BYYhrp+0ETl6ZZs0PBRovwsxT00PCrqsTVrHICT3yOpbAJNOoiAlOm41L3yJv+ZnOaTnuz2UflioZtZp1LduBnnzynXN1eekGLDiy6ZupNippU1knpERUskAXVoj9FcHXT3OktOSwIDAQAB",
+  "icons": {
+    "16": "logo16mono.png",
+    "48": "logo48.png",
+    "128": "logo128.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_icon": {
+      "16": "logo16mono.png",
+      "48": "logo48.png",
+      "128": "logo128.png"
+    },
+    "default_title": "Securly Classroom"
+  },
+  "permissions": [
+    "activeTab",
+    "alarms",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "enterprise.deviceAttributes",
+    "gcm",
+    "geolocation",
+    "identity",
+    "identity.email",
+    "idle",
+    "nativeMessaging",
+    "notifications",
+    "offscreen",
+    "scripting",
+    "storage",
+    "tabs",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>",
+    "*://*/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["*://richmondlp.com/*","*://*.eschooldata.com/*","*://*.arbitersports.com/*"],
+      "js": ["cs.js"],
+      "all_frames": true,
+      "match_origin_as_fallback": true,
+      "match_about_blank": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [{
+    "resources": ["*", "blocking/*", "fonts/*"],
+    "matches": ["<all_urls>"],
+    "extension_ids": ["ffndjmfjhjdamkocbfonjmoaecaflhga",
+      "ljbaelmjoebdeieggdgiaaapncdicekm",
+      "kgbbkfikebgafcfjgpdflkcoihjjlfmd",
+      "jfbecfmiegcjddenjhlbhlikcbfmnafd"]
+  }
+  ]
+}

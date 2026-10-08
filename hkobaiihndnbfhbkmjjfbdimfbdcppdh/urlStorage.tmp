@@ -1,0 +1,78 @@
+const LOGGABLE_PROTOCOLS = new Set(["http:", "https:"]);
+
+class Url {
+  constructor(url, tabTitle, isBlocked =  false) {
+    const urlObj = new URL(url);
+    this.domain = urlObj.hostname;
+    this.path = urlObj.pathname.slice(0, 1000);
+    this.tabTitle = typeof tabTitle === "string" ? tabTitle.trim().slice(0, 1000) : null;
+    this.isBlocked = isBlocked;
+    this.timestamp = Date.now();
+  }
+}
+
+class UrlStorage {
+
+  constructor(urls) {
+    this.urls = Array.isArray(urls) ? urls : [];
+    this.lastVisitedUrl = null;
+  }
+
+  static async load() {
+    let urls;
+    try {
+      const result = await chrome.storage.local.get(STORAGE_URLS);
+      urls = result[STORAGE_URLS];
+    } catch (error) {
+      logger.info("Failed to load urls from local storage: " + error);
+    }
+    logger.info("INIT URL STORAGE WITH URLS=" + JSON.stringify(urls));
+    return new UrlStorage(urls);
+  }
+
+  async saveUrl(rawUrl, tabTitle, isBlocked = false) {
+    try {
+      const urlObj = new URL(rawUrl);
+      if (!LOGGABLE_PROTOCOLS.has(urlObj.protocol)) {
+        return;
+      }
+    } catch (e) {
+      return;
+    }
+    const url = new Url(rawUrl, tabTitle, isBlocked);
+    if (!this.isLast(url)) {
+      this.lastVisitedUrl = url;
+      this.urls.push(url);
+    }
+    try {
+      await chrome.storage.local.set({[STORAGE_URLS]: this.urls});
+    } catch (error) {
+      logger.debug("Failed to save urls to local storage. Error is: " + error);
+    }
+  }
+
+  isLast(url) {
+    return (this.lastVisitedUrl instanceof Url) &&
+        this.lastVisitedUrl.domain === url.domain &&
+        this.lastVisitedUrl.path === url.path;
+  }
+
+  hasUrls() {
+    return this.urls.length > 0;
+  }
+
+  getUrls() {
+    return this.urls;
+  }
+
+  async purge() {
+    this.urls = [];
+    this.lastVisitedUrl = null;
+    try {
+      await chrome.storage.local.remove(STORAGE_URLS);
+      logger.debug("Urls cleared from local storage");
+    } catch (error) {
+      logger.debug("Failed to clear urls from local storage: " + error);
+    }
+  }
+}
