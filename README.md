@@ -16,7 +16,7 @@ This repository is **not affiliated with or endorsed by Securly**.
 
 The files are provided as-is for research and archival purposes. Do not use these files to bypass, disable, or interfere with school, organizational, or network security controls.
 
-If you are the copyright holder and believe material in this repository should not be hosted here, please contact the repository owner.
+If you are the copyright holder and believe material in this repository should not be hosted here, please contact Canyon Lake Labs at ``support@canyonlakelabs.com``.
 
 ## License
 
